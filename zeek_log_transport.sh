@@ -248,7 +248,15 @@ if  [ ${#send_candidates} -eq 0 ]; then
 
 fi
 status "Transferring files to $aih_location"
-$nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates
+flock -xn "$HOME/rsync_log_transport.lck" timeout --kill-after=60 7080 $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates
+retval=$?
+if [ "$retval" == "1" ]; then
+	status "Unable to obtain lock and run a new copy of rsync as the previous rsync appears to still be running."
+elif [ "$retval" == "124" -o "$retval" == "129" ]; then
+	status "Rsync was forcibly terminated as it was running too long."
+elif [ "$retval" == "0" ]; then
+	status "Rsync finished transferring without error."
+fi
 
 #Note: after we added a user option to set the destination dir, we remove the --temp-dir option as this dir may not be on the same mount point as the destination dir.
 #rsync will put temporary files in a .~tmp~ directory under each destination subdir.

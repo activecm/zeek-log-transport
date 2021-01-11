@@ -218,10 +218,8 @@ if [ -z "$local_tld" ]; then
 	fi
 fi
 
-ids_name=''
-if [[ $local_tld == *"zeek"* ]]; then
-	ids_name='zeek'
-else
+ids_name='zeek'
+if [[ $local_tld == *"bro"* ]]; then
 	ids_name='bro'
 fi
 

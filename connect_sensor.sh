@@ -6,7 +6,10 @@
 #FIXME Consider allowing user to set custom sensor name
 #FIXME - make sure you run this on the AI-Hunter server:	cd /opt ; if [ ! -e zeek ]; then sudo ln -sf bro zeek ; fi
 
-#Version 0.1.1
+#WARNING - DO NOT use the old approach of feeding this script directly into bash.  Something about sending it through a pipe
+#(likely related to the 4k limit on pipe blocks) causes the script to exit prematurely.  Download it, then run it.
+
+#Version 0.2.0
 
 #======== Help text
 	if [ "z$1" = "z--help" -o "z$1" = "z-h" -o "$1" = "my.aihunter.system" ]; then
@@ -17,17 +20,13 @@
 		echo 'The optional second command line parameter is the local directory containing your zeek logs.  It is autodetected if not provided.' >&2
 		echo 'This is the directory that contains a symlink called current and multiple directories whose names fit the pattern YYYY-MM-DD .' >&2
 		echo '' >&2
-		echo 'Sample call to execute directly:' >&2
-		echo '   curl -fsSL https://raw.githubusercontent.com/activecm/zeek-log-transport/master/connect_sensor.sh -o - | /bin/bash -s my.aihunter.system [/zeek/log/top/dir/]' >&2
-		echo '' >&2
 		echo 'Sample call to download and run locally:' >&2
-		echo '   curl -fsSL https://raw.githubusercontent.com/activecm/shell-lib/master/acmlib.sh' >&2
-		echo '   curl -fsSL https://raw.githubusercontent.com/activecm/zeek-log-transport/master/connect_sensor.sh' >&2
-		echo '   curl -fsSL https://raw.githubusercontent.com/activecm/zeek-log-transport/master/zeek_log_transport.sh' >&2
-		echo '   chmod 755 connect_sensor.sh' >&2
-		echo '   ./connect_sensor.sh my.aihunter.system [/zeek/log/top/dir/]' >&2
+		echo '   curl -fsSL https://raw.githubusercontent.com/activecm/zeek-log-transport/master/connect_sensor.sh -O' >&2
+		echo '   curl -fsSL https://raw.githubusercontent.com/activecm/shell-lib/master/acmlib.sh -O' >&2
+		echo '   curl -fsSL https://raw.githubusercontent.com/activecm/zeek-log-transport/master/zeek_log_transport.sh -O' >&2
+		echo '   bash connect_sensor.sh my.aihunter.system [/zeek/log/top/dir/]' >&2
 		echo '' >&2
-		echo 'If this system cannot download these files directly, get all three files on a system that can, transfer them here, and run them here.' >&2
+		echo 'If this system cannot download these files directly, get all three files on a system that can, transfer them here, and run connect_sensor.sh here.' >&2
 		exit 1
 	fi
 
@@ -37,6 +36,7 @@
 
 #======== Support procedures
 	#Load acmlib.sh if unable to find askYN as function
+	echo "================ Getting and loading support library ================" >&2
 	if [ "`type -t askYN`" != 'function' ]; then
 		if [ ! -w ./ ]; then
 			echo "Unable to write to current directory, exiting." >&2
@@ -45,13 +45,25 @@
 		echo "Now attempting to download the support library.  If this script exits it's because it was unable to download the library with curl or wget." >&2
 		if [ ! -r ./acmlib.sh ]; then
 			if type -path curl >/dev/null 2>&1 ; then
-				curl -fsSL -O https://raw.githubusercontent.com/activecm/shell-lib/master/acmlib.sh || exit 1
+				curl -fsSL -O https://raw.githubusercontent.com/activecm/shell-lib/master/acmlib.sh
+				if [ $? -ne 0 ]; then
+					echo "Unable to download acmlib.sh with curl, exiting." >&2
+					exit 1
+				fi
 			elif type -path wget >/dev/null 2>&1 ; then
-				wget -O acmlib.sh https://raw.githubusercontent.com/activecm/shell-lib/master/acmlib.sh || exit 1
+				wget -O acmlib.sh https://raw.githubusercontent.com/activecm/shell-lib/master/acmlib.sh
+				if [ $? -ne 0 ]; then
+					echo "Unable to download acmlib.sh with wget, exiting." >&2
+					exit 1
+				fi
 			else
-				echo 'Unable to download acmlib.sh, exiting.' >&2
+				echo 'Unable to locate a download tool to get acmlib.sh, exiting.' >&2
 				exit 1
 			fi
+		fi
+		if [ ! -r ./acmlib.sh ]; then
+			echo "Despite our attempt to download it, we were not able to get acmlib.sh.  Exiting." >&2
+			exit 1
 		fi
 		. ./acmlib.sh
 	fi
@@ -61,19 +73,30 @@
 		exit 1
 	fi
 
+	#From this point on we can use support tools like fail, status, and echo2
 
 #======== Check environment
-	#Install rsync if not already installed
+	status "Installing rsync if not already installed"
 	rsync --version >/dev/null 2>&1 || sudo apt-get -y install rsync >/dev/null 2>&1 || sudo yum -y install rsync >/dev/null 2>&1
+	if ! type -path rsync ]; then
+		if type -path apt-get >/dev/null 2>&1 ; then
+			sudo apt-get -y install rsync >/dev/null
+		elif type -path yum >/dev/null 2>&1 ; then
+			sudo yum -y install rsync >/dev/null
+		else
+			fail "Unable to locate apt-get or yum to install packages"
+		fi
+	fi
 
 	#Needed tools (Note, a few of these are requirements for zeek_log_transport.sh itself)
+	status "Checking for needed tools"
 	require_util awk cat chown chmod curl cut date egrep find grep hostname ip nice rsync sed ssh sort ssh-keygen sudo tr wget whoami
 
 	#Find username of current user
+	status "Checking environment"
 	my_user=`whoami`
 	if [ "$my_user" = "root" ]; then
-		echo2 "This script is not intended to be run as root.  We strongly suggest running this as a normal user; press ctrl-c if you wish to exit and restart as a normal user.  Otherwise, wait 15 seconds and this will continue as root."
-		exit 15
+		fail "This script is not intended to be run as root.  We strongly suggest running this as a normal user; press ctrl-c if you wish to exit and restart as a normal user."
 	fi
 
 	#Check that AI-Hunter hostname/IP is $1.  If not, prompt for hostname/IP.
@@ -94,6 +117,7 @@
 
 
 	#Check that local ssh keypair exists.
+	status "Checking ssh keypair"
 	if [ -s "$HOME/.ssh/id_rsa_dataimport" -a -s "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
 		if ! can_ssh "$aih_location" "-o" 'PasswordAuthentication=no' -i "$HOME/.ssh/id_rsa_dataimport" ; then
 			status "Transferring the RSA key to $aih_location - please provide the password when prompted.  You may be prompted to accept the ssh host key."
@@ -102,7 +126,7 @@
 		fi
 
 	#If it doesn't exist, create the pair.  Then transfer the public key across, warning the user that a password will be requested.
-	elif [ ! -e "$HOME/.ssh/id_rsa_dataimport" -a ! -e "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
+	elif [ ! -s "$HOME/.ssh/id_rsa_dataimport" -a ! -s "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
 		#Create ssh key if it doesn't exist, and push to aihunter server or ask user to do so.
 		status "Creating a new RSA key with no passphrase"
 		ssh-keygen -b 2048 -t rsa -N '' -f "$HOME/.ssh/id_rsa_dataimport"
@@ -111,12 +135,17 @@
 		 | ssh "$aih_location" 'mkdir -p .ssh ; cat >>.ssh/authorized_keys ; chmod go-rwx ./ .ssh/ .ssh/authorized_keys'
 
 	#If only one file of the pair exists warn and exit
-	elif [ -e "$HOME/.ssh/id_rsa_dataimport" -a ! -e "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
-		fail "Private key exists, but not public."
-	elif [ ! -e "$HOME/.ssh/id_rsa_dataimport" -a -e "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
+	elif [ -s "$HOME/.ssh/id_rsa_dataimport" -a ! -s "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
+		echo2 "Private key exists, but not public.  We will attempt to regenerate the public key from the private key."
+		ssh-keygen -y -f "$HOME/.ssh/id_rsa_dataimport" >"$HOME/.ssh/id_rsa_dataimport.pub"
+		if [ ! -s "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
+			fail "Unable to regenerate public key."
+		fi
+	elif [ ! -s "$HOME/.ssh/id_rsa_dataimport" -a -s "$HOME/.ssh/id_rsa_dataimport.pub" ]; then
 		fail "Public key exists, but not private."
 	fi
 
+	status "Finding local log directory"
 	local_tld=''
 	#Check $2 (if set) and common log directories to find where the logs are.
 	for potential_local_tld in $2 /opt/zeek/logs/ /usr/local/zeek/logs/ /var/lib/docker/volumes/var_log_zeek/_data/ /nsm/zeek/logs /storage/zeek/logs/ /opt/bro/logs/ /usr/local/bro/logs/ /var/lib/docker/volumes/var_log_bro/_data/ /nsm/bro/logs /storage/bro/logs/ ; do
@@ -144,6 +173,7 @@
 #======== Install zeek_log_transport.sh
 	#If it's not already in /usr/local/bin...
 	if [ ! -s /usr/local/bin/zeek_log_transport.sh -o ! -x /usr/local/bin/zeek_log_transport.sh ]; then
+		status "Downloading zeek_log_transport.sh"
 		echo2 "You may be prompted for your local password to run commands under sudo."
 
 		#If it exists in the current directory, copy it
@@ -153,9 +183,12 @@
 		else	#Download and install it
 			cd /usr/local/bin/
 			if type -path curl >/dev/null 2>&1 ; then
-				sudo curl -s https://raw.githubusercontent.com/activecm/zeek-log-transport/master/zeek_log_transport.sh -O
+				sudo curl -fsSL https://raw.githubusercontent.com/activecm/zeek-log-transport/master/zeek_log_transport.sh -O
 			elif type -path wget >/dev/null 2>&1 ; then
-				sudo curl -s https://raw.githubusercontent.com/activecm/zeek-log-transport/master/zeek_log_transport.sh -O zeek_log_transport.sh
+				sudo wget https://raw.githubusercontent.com/activecm/zeek-log-transport/master/zeek_log_transport.sh -O zeek_log_transport.sh
+			fi
+			if [ ! -s /usr/local/bin/zeek_log_transport.sh ]; then
+				fail "We were not able to download zeek_log_transport.sh to /usr/local/bin/"
 			fi
 			cd -
 		fi
@@ -165,12 +198,14 @@
 
 #======== Test that we can ssh to $1 (note that the user may need to accept ssh host key and explain how to confirm it)
 	echo2 "Confirming that we can ssh to $aih_location using the ssh authentication key.  You may be prompted to accept the ssh host key."
-	if ! can_ssh "$aih_location" "-o" 'PasswordAuthentication=no' -i $HOME/.ssh/id_rsa_dataimport ; then
+	if can_ssh "$aih_location" "-o" 'PasswordAuthentication=no' -i "$HOME/.ssh/id_rsa_dataimport" ; then
+		echo2 "Was able to ssh"
+	else
 		fail "Unable to ssh to $aih_location using the ssh keypair."
 	fi
 
-
 #======== Run zeek_log_transport.sh to do a first pass transfer using supplied/located local log directory
+	status "Send over previous 3 days of logs to confirm all parts working"
 	/usr/local/bin/zeek_log_transport.sh --dest "$aih_location" --localdir "$local_tld"
 
 	###########Confirm that the target directory exists (possible future check)
@@ -178,6 +213,7 @@
 
 
 #======== If /etc/cron.d/bro_log_transport exists, renamed to /etc/cron.d/zeek_log_transport and fix called command.
+	status "Setting up hourly job to transfer logs"
 	cron_restart_needed="no"
 	if [ -e /etc/cron.d/bro_log_transport -a ! -e /etc/cron.d/zeek_log_transport ]; then
 		sudo mv /etc/cron.d/bro_log_transport /etc/cron.d/zeek_log_transport

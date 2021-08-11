@@ -28,21 +28,23 @@ get_send_logs() {
 
         `rsync $destination:$dest_log_trans $local_dest_dir`
 
-        ##Parse file for logs
-        request_logs=`cat $local_dest_dir | grep -v :`
+	##Parse file for logs skip headerlines (indicated by :) and commented lines (indicated by #)
+        request_logs=`cat $local_dest_dir | grep -v : | grep -v #`
 
 	##TODO check if the request logs is set to all if so we should set the send_logs to the zeek_logs variable
-        #if
-
-        ##Ensure we only send the zeek logs
-        for log in $request_logs
-        do
-                if [[ " ${zeek_logs[*]} " == *"${log}"* ]]; then
-                        send_logs+=($log)
-                #else
-                #       echo $log will not be transported
-                fi
-        done
+	if [[ " ${zeek_logs[*]} " == *"all"* ]]; then
+		send_logs+=("${zeek_logs[@]}")
+	else
+	        ##Ensure we only send the zeek logs
+        	for log in $request_logs
+	        do
+        	        if [[ " ${zeek_logs[*]} " == *"${log}"* ]]; then
+                	        send_logs+=($log)
+	                #else
+        	        #       echo $log will not be transported
+                	fi
+	        done
+	fi
 
         echo "${send_logs[*]}"
 }

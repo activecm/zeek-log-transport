@@ -196,6 +196,9 @@
 		sudo chmod 755 /usr/local/bin/zeek_log_transport.sh
 	fi
 
+#======== Download the default zeek-log-transport.yaml configuration file and send to the destination system
+	##TODO write this out!!!
+
 #======== Test that we can ssh to $1 (note that the user may need to accept ssh host key and explain how to confirm it)
 	echo2 "Confirming that we can ssh to $aih_location using the ssh authentication key.  You may be prompted to accept the ssh host key."
 	if can_ssh "$aih_location" "-o" 'PasswordAuthentication=no' -i "$HOME/.ssh/id_rsa_dataimport" ; then

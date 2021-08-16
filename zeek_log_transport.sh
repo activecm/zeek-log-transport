@@ -15,38 +15,108 @@
 
 export PATH="/sbin:/usr/sbin:$PATH"		#Note that cron does _NOT_ include /sbin in the path, so attempts to locate the "ip" binary fail without this fix
 
-default_user_on_aihunter='dataimport'
+default_user_on_aihunter="dataimport"
 
 get_send_logs() {
-        ##These names were found at https://docs.zeek.org/en/master/script-reference/log-files.html
-        declare -a zeek_logs=("conn" "dce_rpc" "dhcp" "dnp3" "dns" "ftp" "http" "irc" "kerberos" "modbus" "modbus_register_change" "mysql" "ntlm" "ntp" "radius" "rdp" "rfb" "sip" "smb_cmd" "smb_files" "smb_mapping" "smtp" "snmp" "socks" "ssh" "ssl" "syslog" "tunnel" "files" "ocsp" "pe" "x509" "netcontrol" "netcontrol_drop" "netcontrol_shunt" "netcontrol_catch_release" "openflow" "intel" "notice" "notice_alarm" "signatures" "traceroute" "known_certs" "known_hosts" "known_modbus" "known_services" "software" "barnyard2" "dpd" "unified2" "unknown_protocols" "weird" "weird_stats" "broker" "capture_loss" "cluster" "config" "loaded_scripts" "packet_filter" "print" "prof" "reporter" "stats" "stderr" "stdout"  "conn-summary")
-        send_logs=()
+	##These names were found at https://docs.zeek.org/en/master/script-reference/log-files.html
+	declare -a zeek_logs=(	"barnyard2"
+				"broker"
+				"capture_loss"
+				"cluster"
+				"config"
+				"conn"
+				"conn-summary"
+				"dce_rpc"
+				"dhcp"
+				"dnp3"
+				"dns"
+				"dpd"
+				"files"
+				"ftp"
+				"http"
+				"intel"
+				"irc"
+				"kerberos"
+				"known_certs"
+				"known_hosts"
+				"known_modbus"
+				"known_services"
+				"loaded_scripts"
+				"modbus"
+				"modbus_register_change"
+				"mysql"
+				"netcontrol"
+				"netcontrol_catch_release"
+				"netcontrol_drop"
+				"netcontrol_shunt"
+				"notice"
+				"notice_alarm"
+				"ntlm"
+				"ntp"
+				"ocsp"
+				"openflow"
+				"packet_filter"
+				"pe"
+				"print"
+				"prof"
+				"radius"
+				"rdp"
+				"reporter"
+				"rfb"
+				"signatures"
+				"sip"
+				"smb_cmd"
+				"smb_files"
+				"smb_mapping"
+				"smtp"
+				"snmp"
+				"socks"
+				"software"
+				"ssh"
+				"ssl"
+				"stats"
+				"stderr"
+				"stdout"
+				"syslog"
+				"traceroute"
+				"tunnel"
+				"unified2"
+				"unknown_protocols"
+				"weird"
+				"weird_stats"
+				"x509"
+			)
+	send_logs=()
 
-	destination=$1
-	dest_log_trans=$2
-	local_dest_dir=$3
+	destination="$1"
+	dest_log_trans="$2"
+	local_dest_dir="$3"
 
-        `rsync $destination:$dest_log_trans $local_dest_dir`
+	rsync $destination:$dest_log_trans $local_dest_dir
 
 	##Parse file for logs skip headerlines (indicated by :) and commented lines (indicated by #)
-        request_logs=`cat $local_dest_dir | grep -v : | grep -v #`
+	echo $local_dest_dir
+	request_logs=`cat $local_dest_dir | grep -v ":" | grep -v "#"`
+	echo ${requst_logs[0]}
 
 	##TODO check if the request logs is set to all if so we should set the send_logs to the zeek_logs variable
-	if [[ " ${zeek_logs[*]} " == *"all"* ]]; then
+	if [[ ${request_logs[*]} == *all* || ${request_logs[*]} == *All* || ${request_logs[*]} == *ALL* ]]; then
+		touch ./all_logs
 		send_logs+=("${zeek_logs[@]}")
 	else
-	        ##Ensure we only send the zeek logs
-        	for log in $request_logs
-	        do
-        	        if [[ " ${zeek_logs[*]} " == *"${log}"* ]]; then
-                	        send_logs+=($log)
-	                #else
-        	        #       echo $log will not be transported
-                	fi
-	        done
+		touch ./select_logs
+		##Ensure we only send the zeek logs
+		for log in $request_logs
+		do
+			if [[ ${zeek_logs[*]} == *${log}* ]]; then
+				send_logs+=($log)
+			#else
+			#       echo $log will not be transported
+			fi
+		done
 	fi
 
-        echo "${send_logs[*]}"
+	echo "${send_logs[*]}"
 }
 
 
@@ -123,14 +193,14 @@ usage () {
 
 require_util () {
 	#Returns true if all binaries listed as parameters exist somewhere in the path, False if one or more missing.
-        while [ -n "$1" ]; do
-                if ! type -path "$1" >/dev/null 2>/dev/null ; then
-                        echo Missing utility "$1". Please install it. >&2
-                        return 1        #False, app is not available.
-                fi
-                shift
-        done
-        return 0        #True, app is there.
+	while [ -n "$1" ]; do
+		if ! type -path "$1" >/dev/null 2>/dev/null ; then
+			echo Missing utility "$1". Please install it. >&2
+			return 1        #False, app is not available.
+		fi
+		shift
+	done
+	return 0	#True, app is there.
 } #End of requireutil
 
 
@@ -287,7 +357,7 @@ logs_str=`echo "${request_logs[*]// /|}"`
 cd "$local_tld" || fail "Unable to change to $local_tld"
 
 query="find . -type f -mtime -$request_days -iname '*.gz' | egrep '($logs_str)' | sort -u"
-send_candidates=$(eval "$query")
+send_candidates="$(eval $query)"
 if  [ ${#send_candidates} -eq 0 ]; then
 	#if we don't have anything we assume that we need to check the last 3 days for logs needed for RITA
 	send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep '(conn|dns|http|ssl|x509|known_certs)' | sort -u`
@@ -296,8 +366,8 @@ if  [ ${#send_candidates} -eq 0 ]; then
 		printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"
 		echo
 	fi
-
 fi
+
 status "Transferring files to $aih_location"
 flock -xn "$HOME/rsync_log_transport.lck" timeout --kill-after=60 7080 $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
 retval=$?

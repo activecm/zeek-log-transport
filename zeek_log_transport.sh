@@ -289,9 +289,13 @@ cd "$local_tld" || fail "Unable to change to $local_tld"
 query="find . -type f -mtime -$request_days -iname '*.gz' | egrep '($logs_str)' | sort -u"
 send_candidates=$(eval "$query")
 if  [ ${#send_candidates} -eq 0 ]; then
-	echo
-	printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"
-	echo
+	#if we don't have anything we assume that we need to check the last 3 days for logs needed for RITA
+	send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep '(conn|dns|http|ssl|x509|known_certs)' | sort -u`
+	if [ ${#send_candidates} -eq 0 ]; then
+		echo
+		printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"
+		echo
+	fi
 
 fi
 status "Transferring files to $aih_location"

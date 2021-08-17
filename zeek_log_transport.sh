@@ -101,10 +101,8 @@ get_send_logs() {
 
 	##TODO check if the request logs is set to all if so we should set the send_logs to the zeek_logs variable
 	if [[ ${request_logs[*]} == *all* || ${request_logs[*]} == *All* || ${request_logs[*]} == *ALL* ]]; then
-		touch ./all_logs
 		send_logs+=("${zeek_logs[@]}")
 	else
-		touch ./select_logs
 		##Ensure we only send the zeek logs
 		for log in $request_logs
 		do

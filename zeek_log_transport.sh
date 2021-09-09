@@ -18,74 +18,6 @@ export PATH="/sbin:/usr/sbin:$PATH"		#Note that cron does _NOT_ include /sbin in
 default_user_on_aihunter="dataimport"
 
 get_send_logs() {
-	##These names were found at https://docs.zeek.org/en/master/script-reference/log-files.html
-	declare -a zeek_logs=(	"barnyard2"
-				"broker"
-				"capture_loss"
-				"cluster"
-				"config"
-				"conn"
-				"conn-summary"
-				"dce_rpc"
-				"dhcp"
-				"dnp3"
-				"dns"
-				"dpd"
-				"files"
-				"ftp"
-				"http"
-				"intel"
-				"irc"
-				"kerberos"
-				"known_certs"
-				"known_hosts"
-				"known_modbus"
-				"known_services"
-				"loaded_scripts"
-				"modbus"
-				"modbus_register_change"
-				"mysql"
-				"netcontrol"
-				"netcontrol_catch_release"
-				"netcontrol_drop"
-				"netcontrol_shunt"
-				"notice"
-				"notice_alarm"
-				"ntlm"
-				"ntp"
-				"ocsp"
-				"openflow"
-				"packet_filter"
-				"pe"
-				"print"
-				"prof"
-				"radius"
-				"rdp"
-				"reporter"
-				"rfb"
-				"signatures"
-				"sip"
-				"smb_cmd"
-				"smb_files"
-				"smb_mapping"
-				"smtp"
-				"snmp"
-				"socks"
-				"software"
-				"ssh"
-				"ssl"
-				"stats"
-				"stderr"
-				"stdout"
-				"syslog"
-				"traceroute"
-				"tunnel"
-				"unified2"
-				"unknown_protocols"
-				"weird"
-				"weird_stats"
-				"x509"
-			)
 	send_logs=()
 
 	destination="$1"
@@ -95,24 +27,20 @@ get_send_logs() {
 	rsync $destination:$dest_log_trans $local_dest_dir
 
 	##Parse file for logs skip headerlines (indicated by :) and commented lines (indicated by #)
-	echo $local_dest_dir
+	#echo $local_dest_dir
 	request_logs=`cat $local_dest_dir | grep -v ":" | grep -v "#"`
-	echo ${requst_logs[0]}
+	#echo ${requst_logs[0]}
 
-	##TODO check if the request logs is set to all if so we should set the send_logs to the zeek_logs variable
-	if [[ ${request_logs[*]} == *all* || ${request_logs[*]} == *All* || ${request_logs[*]} == *ALL* ]]; then
-		send_logs+=("${zeek_logs[@]}")
-	else
-		##Ensure we only send the zeek logs
-		for log in $request_logs
-		do
-			if [[ ${zeek_logs[*]} == *${log}* ]]; then
-				send_logs+=($log)
-			#else
-			#       echo $log will not be transported
-			fi
-		done
-	fi
+	##Ensure we only send the zeek logs
+	for log in $request_logs
+	do
+		##check requested logs agains a regex that should prevent escaping Zeek TLD
+		if [[ $log =~ ^[a-zA-Z0-9_-]+$ ]]; then
+			send_logs+=($log)
+		#else
+		#  echo "$log will not be transported"
+		fi
+	done
 
 	echo "${send_logs[*]}"
 }
@@ -347,8 +275,22 @@ status "Sending logs to rita/aihunter server $aih_location , My name: $my_id , l
 status "Preparing remote directories"
 ssh $extra_ssh_params "$aih_location" "mkdir -p ${remote_top_dir}/$today/ ${remote_top_dir}/$yesterday/ ${remote_top_dir}/$twoda/ ${remote_top_dir}/$threeda/ ${remote_top_dir}/current/"
 
-recv_loc="`pwd`/zeek-log-transport.yaml"
-request_logs=`get_send_logs $aih_location "/etc/AI-Hunter/zeek-log-transport.yaml" "$recv_loc"`
+# Set the destination location to be a temporary file we have read/write access
+recv_loc="$(mktemp)"
+# Clean up the temporary files on exit
+trap "rm -rf '$recv_loc'" EXIT
+
+# Check this sensor's remote log directory for zeek-log-transport.yaml if this
+# file exists use that for configuration, if not use the default config file
+
+remote_trans_yaml=""
+if ssh -q $aih_location [[ -e "$remote_top_dir/zeek-log-transport.yaml" ]]; then
+	remote_trans_yaml="$remote_top_dir/zeek-log-transport.yaml"
+else
+	remote_trans_yaml="/etc/AI-Hunter/zeek-log-transport.yaml"
+fi
+
+request_logs=`get_send_logs $aih_location "$remote_trans_yaml" "$recv_loc"`
 request_days=`get_send_days $recv_loc`
 logs_str=`echo "${request_logs[*]// /|}"`
 
@@ -357,7 +299,7 @@ cd "$local_tld" || fail "Unable to change to $local_tld"
 query="find . -type f -mtime -$request_days -iname '*.gz' | egrep '($logs_str)' | sort -u"
 send_candidates="$(eval $query)"
 if  [ ${#send_candidates} -eq 0 ]; then
-	#if we don't have anything we assume that we need to check the last 3 days for logs needed for RITA
+	# If send_candidates is empty assume  the last 3 days and default logs needed for RITA
 	send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep '(conn|dns|http|ssl|x509|known_certs)' | sort -u`
 	if [ ${#send_candidates} -eq 0 ]; then
 		echo

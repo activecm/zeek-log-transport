@@ -15,7 +15,45 @@
 
 export PATH="/sbin:/usr/sbin:$PATH"		#Note that cron does _NOT_ include /sbin in the path, so attempts to locate the "ip" binary fail without this fix
 
-default_user_on_aihunter='dataimport'
+default_user_on_aihunter="dataimport"
+
+get_send_logs() {
+	send_logs=()
+
+	destination="$1"
+	dest_log_trans="$2"
+	local_dest_dir="$3"
+
+	rsync $destination:$dest_log_trans $local_dest_dir
+
+	##Parse file for logs skip headerlines (indicated by :) and commented lines (indicated by #)
+	#echo $local_dest_dir
+	request_logs=`cat $local_dest_dir | grep -v ":" | grep -v "#"`
+	#echo ${requst_logs[0]}
+
+	##Ensure we only send the zeek logs
+	for log in $request_logs
+	do
+		##check requested logs agains a regex that should prevent escaping Zeek TLD
+		if [[ $log =~ ^[a-zA-Z0-9_-]+$ ]]; then
+			send_logs+=($log)
+		#else
+		#  echo "$log will not be transported"
+		fi
+	done
+
+	echo "${send_logs[*]}"
+}
+
+
+get_send_days() {
+	local_yaml_file=$1
+
+	days_back=`cat $local_yaml_file | grep "Days:" | cut -d ':' -f2`
+	rm $local_yaml_file
+
+	echo $days_back
+}
 
 
 can_ssh () {
@@ -81,14 +119,14 @@ usage () {
 
 require_util () {
 	#Returns true if all binaries listed as parameters exist somewhere in the path, False if one or more missing.
-        while [ -n "$1" ]; do
-                if ! type -path "$1" >/dev/null 2>/dev/null ; then
-                        echo Missing utility "$1". Please install it. >&2
-                        return 1        #False, app is not available.
-                fi
-                shift
-        done
-        return 0        #True, app is there.
+	while [ -n "$1" ]; do
+		if ! type -path "$1" >/dev/null 2>/dev/null ; then
+			echo Missing utility "$1". Please install it. >&2
+			return 1        #False, app is not available.
+		fi
+		shift
+	done
+	return 0	#True, app is there.
 } #End of requireutil
 
 
@@ -237,14 +275,39 @@ status "Sending logs to rita/aihunter server $aih_location , My name: $my_id , l
 status "Preparing remote directories"
 ssh $extra_ssh_params "$aih_location" "mkdir -p ${remote_top_dir}/$today/ ${remote_top_dir}/$yesterday/ ${remote_top_dir}/$twoda/ ${remote_top_dir}/$threeda/ ${remote_top_dir}/current/"
 
-cd "$local_tld" || fail "Unable to change to $local_tld"
-send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep '(conn|dns|http|ssl|x509|known_certs)' | sort -u`
-if  [ ${#send_candidates} -eq 0 ]; then
-	echo
-	printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"
-	echo
+# Set the destination location to be a temporary file we have read/write access
+recv_loc="$(mktemp)"
+# Clean up the temporary files on exit
+trap "rm -rf '$recv_loc'" EXIT
 
+# Check this sensor's remote log directory for zeek-log-transport.yaml if this
+# file exists use that for configuration, if not use the default config file
+
+remote_trans_yaml=""
+if ssh -q $aih_location [[ -e "$remote_top_dir/zeek-log-transport.yaml" ]]; then
+	remote_trans_yaml="$remote_top_dir/zeek-log-transport.yaml"
+else
+	remote_trans_yaml="/etc/AI-Hunter/zeek-log-transport.yaml"
 fi
+
+request_logs=`get_send_logs $aih_location "$remote_trans_yaml" "$recv_loc"`
+request_days=`get_send_days $recv_loc`
+logs_str=`echo "${request_logs[*]// /|}"`
+
+cd "$local_tld" || fail "Unable to change to $local_tld"
+
+query="find . -type f -mtime -$request_days -iname '*.gz' | egrep '($logs_str)' | sort -u"
+send_candidates="$(eval $query)"
+if  [ ${#send_candidates} -eq 0 ]; then
+	# If send_candidates is empty assume  the last 3 days and default logs needed for RITA
+	send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep '(conn|dns|http|ssl|x509|known_certs)' | sort -u`
+	if [ ${#send_candidates} -eq 0 ]; then
+		echo
+		printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"
+		echo
+	fi
+fi
+
 status "Transferring files to $aih_location"
 flock -xn "$HOME/rsync_log_transport.lck" timeout --kill-after=60 7080 $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
 retval=$?

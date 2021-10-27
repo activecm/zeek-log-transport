@@ -3,15 +3,16 @@ Logs:
         #These headings are for user friendliness, they do not do anything
         #Default:
         conn
+        conn-summary
         dns
         http
         ssl
         x509
         known_certs
         #Troubleshooting:
-        #capture_loss
-        #notice
-        #stats
+        capture_loss
+        notice
+        stats
         #All:
         #dce_rpc
         #dhcp
@@ -69,4 +70,4 @@ Logs:
         #reporter
         #stderr
         #stdout
-        #conn-summary
+

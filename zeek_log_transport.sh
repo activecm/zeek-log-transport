@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#Version 0.3.9
+#Version 0.4.0
 
-#This sends any bro/zeek logs less than three days old to the rita/aihunter server.  It only sends logs of these types:
-#conn., dns., http., ssl., x509., and known_certs.  Any logs that already exist on the target system are not retransferred.
+#This sends any bro/zeek logs less than three days old to the rita/aihunter server. 
+#Any logs that already exist on the target system are not retransferred.
 
 #Before using this, run these on the rita/aihunter server (use zeek in place of bro if necesssary):
 #sudo adduser dataimport
@@ -57,24 +57,22 @@ status () {
 
 
 usage () {
-	echo 'Usage: '"$0"' [--localdir /local/top/dir/] [--dest where_to_ssh] [--remotedir /remote/top/dir/] [--rsyncparams '"' --aparam --anotherparam '"']' >&2
-	echo 'The optional --dest can be a hostname, IP, user@hostname, user@ip, or any label in an ~/.ssh/config stanza' >&2
-	echo 'If left off, we use the "Location" field from /etc/rita/agent.yaml' >&2
-	echo 'The user@... format is discouraged - we want to use dataimport@... on the remote server.' >&2
-	echo '' >&2
-	echo 'The optional --localdir is where the Bro/Zeek logs can be found on this system system.' >&2
-	echo 'If you look in this directory, it should contain at least a directory or symlink called current .' >&2
-	echo 'By default we will look in common locations for this directory tree.' >&2
-	echo '' >&2
-	echo 'The optional --remotedir is where you want the Bro/Zeek logs to end up on the target system.' >&2
-	echo 'If left off, it will be /opt/bro/remotelogs/$my_id/ or /opt/zeek/remotelogs/$my_id/' >&2
-	echo '' >&2
-	echo 'The optional --rsyncparams allows you to specify parameters for rsync.  MAKE SURE to enclose the entire block in a pair of single quotes.  Suggestions:' >&2
-	echo '	--bwlimit=NNN	#Limit bandwidth used to NNN kilobytes/sec' >&2
-	echo '	-v		#Verbose; list out the files being transferred, discouraged if running from cron' >&2
-	echo '	-q		#Turn off any messages that are not errors, encouraged if running from cron' >&2
-	echo '	--dry-run	#Test, do not actually transfer files' >&2
-	echo '	DO NOT add --compress ; the files we are sending are already compressed.' >&2
+	cat <<HEREDOC >&2
+Usage: $0 [--all] [--dest where_to_ssh] [--localdir /local/top/dir/] [--remotedir /remote/top/dir/] [--rsyncparams '--aparam --anotherparam']
+
+Options:
+    --all           Sync all Zeek log types instead of the default subset.
+    --dest          SSH destination target (e.g hostname, IP, user@hostname, user@ip)
+    --localdir      Location of Zeek logs on local system. (default: searches common locations)
+    --remotedir     Location of Zeek logs on remote system. (default: /opt/zeek/remotelogs/<sensorname>/)
+    --rsyncparams   Allows specifying parameters for rsync. Enclose in a pair of single quotes.
+
+        Suggestions:
+            --bwlimit=NNN   Limit bandwidth used to NNN kilobytes/sec
+            -v              Verbose; list out the files being transferred
+            -q              Turn off any messages that are not errors
+            -n              Dry run, do not actually transfer files
+HEREDOC
 	exit
 }
 
@@ -102,8 +100,14 @@ else
 	nice_me=' nice -n 19 '
 fi
 
+#Default log types to send
+log_type_regex='(conn|dns|http|ssl|x509|known_certs|capture_loss|notice|stats)'
+
+#Parse command line flags
 while [ -n "$1" ]; do
-	if [ "z$1" = "z--localdir" -a -e "$2" ]; then
+	if [ "z$1" = "z--all" ]; then
+		log_type_regex='.'  #dot matches all log types
+	elif [ "z$1" = "z--localdir" -a -e "$2" ]; then
 		local_tld="$2"
 		shift
 	elif [ "z$1" = "z--remotedir" -a -n "$2" ]; then
@@ -117,7 +121,6 @@ while [ -n "$1" ]; do
 			#No "@" symbol in target system, force username to $default_user_on_aihunter
 			aih_location="${default_user_on_aihunter}@${2}"
 		fi
-
 		shift
 	elif [ "z$1" = "z--rsyncparams" -a -n "$2" ]; then
 		rsyncparams="$2"
@@ -238,7 +241,7 @@ status "Preparing remote directories"
 ssh $extra_ssh_params "$aih_location" "mkdir -p ${remote_top_dir}/$today/ ${remote_top_dir}/$yesterday/ ${remote_top_dir}/$twoda/ ${remote_top_dir}/$threeda/ ${remote_top_dir}/current/"
 
 cd "$local_tld" || fail "Unable to change to $local_tld"
-send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep '(conn|dns|http|ssl|x509|known_certs|capture_loss|notice|stats)' | sort -u`
+send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep "$log_type_regex" | sort -u`
 if  [ ${#send_candidates} -eq 0 ]; then
 	echo
 	printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"

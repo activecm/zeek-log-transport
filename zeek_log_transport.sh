@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#Version 0.4.0
+#Version 0.4.1
 
 #This sends any bro/zeek logs less than three days old to the rita/aihunter server. 
 #Any logs that already exist on the target system are not retransferred.
@@ -241,7 +241,7 @@ status "Preparing remote directories"
 ssh $extra_ssh_params "$aih_location" "mkdir -p ${remote_top_dir}/$today/ ${remote_top_dir}/$yesterday/ ${remote_top_dir}/$twoda/ ${remote_top_dir}/$threeda/ ${remote_top_dir}/current/"
 
 cd "$local_tld" || fail "Unable to change to $local_tld"
-send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep "$log_type_regex" | sort -u`
+send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep "$log_type_regex" | grep -v '/\.' | sort -u`
 if  [ ${#send_candidates} -eq 0 ]; then
 	echo
 	printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"

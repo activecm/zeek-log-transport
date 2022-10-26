@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#Version 0.4.1
+#Version 0.4.2
 
 #This sends any bro/zeek logs less than three days old to the rita/aihunter server. 
 #Any logs that already exist on the target system are not retransferred.
@@ -249,7 +249,7 @@ if  [ ${#send_candidates} -eq 0 ]; then
 
 fi
 status "Transferring files to $aih_location"
-flock -xn "$HOME/rsync_log_transport.lck" timeout --kill-after=60 7080 $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
+flock -xn "$HOME/rsync_log_transport.lck" timeout --kill-after=60 7080 $nice_me rsync --exclude 'conn_long*' --exclude 'http2*' --exclude 'mqtt_connect*' --exclude 'encrypted_dns*' $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
 retval=$?
 if [ "$retval" == "1" ]; then
 	status "Unable to obtain lock and run a new copy of rsync as the previous rsync appears to still be running."

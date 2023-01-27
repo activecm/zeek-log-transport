@@ -249,7 +249,7 @@ if  [ ${#send_candidates} -eq 0 ]; then
 
 fi
 status "Transferring files to $aih_location"
-flock -xn "$HOME/rsync_log_transport.lck" timeout --kill-after=60 7080 $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
+flock -xn "$HOME/rsync_log_transport.`echo $aih_location | sed -e 's/@/_/g'`.lck" timeout --kill-after=60 7080 $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
 retval=$?
 if [ "$retval" == "1" ]; then
 	status "Unable to obtain lock and run a new copy of rsync as the previous rsync appears to still be running."

@@ -1,1 +1,0 @@
-../../../../zeek_log_transport.sh

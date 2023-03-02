@@ -1,6 +1,6 @@
 [submodule "installer/scripts/shell-lib"]
 	path = installer/scripts/shell-lib
 	url = git@github.com:activecm/shell-lib.git
-[submodule "Zeek-Transport/scripts/shell-lib"]
-	path = Zeek-Transport/scripts/shell-lib
+[submodule "Zeek-Transport/shell-lib"]
+	path = Zeek-Transport/shell-lib
 	url = git@github.com:activecm/shell-lib.git

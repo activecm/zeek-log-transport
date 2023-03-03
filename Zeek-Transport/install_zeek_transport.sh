@@ -82,7 +82,7 @@ main () {
     status "Installing supporting software"
     ensure_common_tools_installed
 
-    scripts/install_data_import.sh Zeek $ach_ip
+    scripts/install_data_import.sh $ach_ip
 }
 
 main "$@"

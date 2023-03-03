@@ -40,32 +40,31 @@ data_import_private_key="$HOME/.ssh/id_rsa_dataimport"
 data_import_public_key="$HOME/.ssh/id_rsa_dataimport.pub"
 
 #### Init State
-data_source_name=""
 ach_ip=""
 
 #### Main Logic
 print_usage_text () {
     cat >&2 <<EOHELP
-This script will and set up routine data transfers to AC-Hunter. This script
+This script will set up routine data transfers to AC-Hunter. This script
 should not be called directly.
 
-The first parameter should be set to the name of the software producing the
-data which is being sent to AC-Hunter. The second parameter is an optional
-IP address for AC-Hunter. If it is not set, the script will prompt the user
-for the address. If the address is set to 127.0.0.1, nothing will be installed.
+The first parameter is an optional IP address for AC-Hunter. If it is not set,
+the script will prompt the user for the address.
+If the address is set to 127.0.0.1, nothing will be installed.
 
 On the command line, enter:
-$0 name-of-data-source [ip.address.for.achunter]
+$0 [ip.address.for.achunter]
 EOHELP
 }
 
 parse_parameters () {
-	if [ -z "$1" ]; then
-		print_usage_text
-		exit 1
-	fi
-	data_source_name="$1"
-	ach_ip="$2"
+    # Reads input parameters into the the Init State variables
+    if [ "$1" = 'help' -o "$1" = '--help' ]; then
+        print_usage_text
+        exit 0
+    fi
+
+	ach_ip="$1"
 }
 
 check_data_import_ip () {
@@ -96,7 +95,7 @@ main() {
 		if [ -n "$ach_ip" -a -e "$data_import_public_key" ]; then
 			echo2 "Please ensure $data_import_public_key has been added to /home/dataimport/.ssh/authorized_keys on $ach_ip."
 		fi
-	    echo2 "In order to transfer data from $data_source_name to AC-Hunter, we need to know the hostname or IP address of the AC-Hunter system."
+	    echo2 "In order to transfer data from `hostname` to AC-Hunter, we need to know the hostname or IP address of the AC-Hunter system."
         echo2 "Enter    127.0.0.1    if AC-Hunter is installed locally."
 		prompt2 "Please enter the hostname or IP address of your AC-Hunter system: "
         read -e ach_ip <&2
@@ -107,7 +106,7 @@ main() {
 		return 0
 	fi
 
-	echo2 "$data_source_name is able to send data to AC-Hunter, good."
+	echo2 "`hostname` is able to send data to AC-Hunter, good."
 
 	status "Installing data transfer routine"
 

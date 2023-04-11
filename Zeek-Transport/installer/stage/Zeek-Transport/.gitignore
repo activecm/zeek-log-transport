@@ -1,0 +1,3 @@
+# Don't commit any generated resources
+*.tar.gz
+*.tar

@@ -1,0 +1,3 @@
+[submodule "Zeek-Transport/shell-lib"]
+	path = Zeek-Transport/shell-lib
+	url = git@github.com:activecm/shell-lib.git

@@ -4,6 +4,7 @@ on: push
 
 jobs:
   upload:
+    if: startsWith(github.ref, 'refs/tags/')
     name: Upload Artifacts
     runs-on: ubuntu-22.04
     steps:
@@ -15,6 +16,5 @@ jobs:
       - uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: Zeek-Transport/installer/Zeek-Transport.tar

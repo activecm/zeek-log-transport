@@ -1,15 +1,6 @@
 name: Generate and upload a release assets
 
 on: push
-  # release:
-  #   types:
-  #     - published
-  #     # - unpublished
-  #     - created
-  #     - edited
-  #     #- deleted
-  #     - prereleased
-  #     - released
 
 jobs:
   upload:

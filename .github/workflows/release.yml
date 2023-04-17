@@ -19,11 +19,11 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-      - run: shell-lib/docker/install_docker.sh
-      - run: installer/generate_installer.sh
+      - run: Zeek-Transport/shell-lib/docker/install_docker.sh
+      - run: Zeek-Transport/installer/generate_installer.sh
       - uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: installer/Zeek-Transport.tar
+          files: Zeek-Transport/installer/Zeek-Transport.tar

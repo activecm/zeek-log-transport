@@ -9,8 +9,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-        with:
-          submodules: true
       - run: Zeek-Transport/shell-lib/docker/install_docker.sh
       - run: Zeek-Transport/installer/generate_installer.sh
       - uses: softprops/action-gh-release@v1

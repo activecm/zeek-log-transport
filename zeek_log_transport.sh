@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#Version 0.4.1
+#Version 0.4.6
 
 #This sends any bro/zeek logs less than three days old to the rita/aihunter server. 
 #Any logs that already exist on the target system are not retransferred.
@@ -8,9 +8,9 @@
 #Before using this, run these on the rita/aihunter server (use zeek in place of bro if necesssary):
 #sudo adduser dataimport
 #sudo passwd dataimport
-#sudo mkdir -p /opt/bro/remotelogs/ /home/dataimport/.ssh/
+#sudo mkdir -p /opt/zeek/remotelogs/ /home/dataimport/.ssh/
 #add the dataimport user's ssh public key to /home/dataimport/.ssh/authorized_keys in the rita/aihunter server
-#sudo chown -R dataimport /opt/bro/remotelogs/ /home/dataimport/.ssh/
+#sudo chown -R dataimport /opt/zeek/remotelogs/ /home/dataimport/.ssh/
 #sudo chmod go-rwx -R /home/dataimport/.ssh/
 
 export PATH="/sbin:/usr/sbin:$PATH"		#Note that cron does _NOT_ include /sbin in the path, so attempts to locate the "ip" binary fail without this fix
@@ -58,13 +58,14 @@ status () {
 
 usage () {
 	cat <<HEREDOC >&2
-Usage: $0 [--all] [--dest where_to_ssh] [--localdir /local/top/dir/] [--remotedir /remote/top/dir/] [--rsyncparams '--aparam --anotherparam']
+Usage: $0 [--all] [--dest where_to_ssh] [--localdir /local/top/dir/] [--remotedir /remote/top/dir/] [--numdays days_to_transfer] [--rsyncparams '--aparam --anotherparam']
 
 Options:
     --all           Sync all Zeek log types instead of the default subset.
     --dest          SSH destination target (e.g hostname, IP, user@hostname, user@ip)
     --localdir      Location of Zeek logs on local system. (default: searches common locations)
     --remotedir     Location of Zeek logs on remote system. (default: /opt/zeek/remotelogs/<sensorname>/)
+    --numdays       Number of 24 hour periods, going backwards from now, to send.  Must be an integer, minimum value 3 .  Default 3
     --rsyncparams   Allows specifying parameters for rsync. Enclose in a pair of single quotes.
 
         Suggestions:
@@ -91,7 +92,7 @@ require_util () {
 
 
 #Check that we have basic tools to continue
-require_util awk cut date egrep find grep hostname ip nice rsync sed ssh sort tr		|| fail "Missing a required utility"
+require_util awk cut date egrep find flock grep hostname mktemp nice rsync sed ssh sort tr		|| fail "Missing a required utility"
 
 #ionice is not stricly required; if it exists we'll use it to give all other processes on the system first access to the disk, effectively eliminating the chance that we cause dropped packets from disk contention.
 if type -path ionice >/dev/null 2>/dev/null ; then
@@ -102,6 +103,8 @@ fi
 
 #Default log types to send
 log_type_regex='(conn|dns|http|ssl|x509|known_certs|capture_loss|notice|stats)'
+
+timeout_secs=7080
 
 #Parse command line flags
 while [ -n "$1" ]; do
@@ -122,6 +125,12 @@ while [ -n "$1" ]; do
 			aih_location="${default_user_on_aihunter}@${2}"
 		fi
 		shift
+	elif [ "z$1" = "z--numdays" -a -n "$2" ]; then
+		numdays="$2"
+		if [ "$numdays" != "3" ]; then
+			timeout_secs=600000	#Just under a week
+		fi
+		shift
 	elif [ "z$1" = "z--rsyncparams" -a -n "$2" ]; then
 		rsyncparams="$2"
 		shift
@@ -139,6 +148,10 @@ if [ -z "$rsyncparams" ]; then
 	rsyncparams=" -q "
 fi
 
+if [ -z "$numdays" -o "z$numdays" = "z0" -o "z$numdays" = "z1" -o "z$numdays" = "z2" ]; then
+	numdays="3"
+fi
+
 #Where should we send the bro/zeek logs?
 if [ -z "$aih_location" ]; then
 	if [ -s /etc/rita/agent.yaml ]; then
@@ -154,12 +167,19 @@ fi
 if [ -s /etc/rita/agent.yaml -a -n "`grep '^[^#]*Name' /etc/rita/agent.yaml 2>/dev/null | sed -e 's/^.*Name:*\W*//'`" ]; then
 	#Manually setting the hostname to use in agent.yaml is preferred...
 	my_id=`grep '^[^#]*Name' /etc/rita/agent.yaml 2>/dev/null | sed -e 's/^.*Name:*\W*//' | tr -dc 'a-zA-Z0-9_^+=' | cut -c -52`
-else
+elif type -path ip >/dev/null 2>&1 ; then
 	#...but if no name is forced, we use the short hostname + the primary IP, which should be unique.
 	#Following is short form of the hostname, then "__", then the primary IP ipv4 address (one for the default route) of the system.
 	#The tr command strips off spaces or odd characters in hostname
 	my_id=`hostname -s | tr -dc 'a-zA-Z0-9_^+='`"__"`ip route get 8.8.8.8 | awk '{print $NF;exit}' | tr -dc 'a-zA-Z0-9_^+='`
 	my_id=`echo "$my_id" | cut -c -52`
+elif type -path ifconfig >/dev/null 2>&1 && type -path route >/dev/null 2>&1 ; then
+	#No "ip" command (macos) so we try ifconfig and route
+	default_route_interface="$(route get default | grep 'interface: ' | sed 's/[^:]*: \(.*\)/\1/')"
+	my_id=$(hostname -s | tr -dc 'a-zA-Z0-9_^+=')"__"$(ifconfig "$default_route_interface" | grep 'inet ' | sed 's/.*inet \([0-9.]*\) .*/\1/' | tr -dc 'a-zA-Z0-9_^+=')		#'
+	my_id=`echo "$my_id" | cut -c -52`
+else
+	fail "Unable to locate ip, ifconfig, or route to identify local IP address."
 fi
 
 extra_ssh_params=' '
@@ -221,6 +241,8 @@ if [ -z "$local_tld" ]; then
 	fi
 fi
 
+send_candidate_file=$(mktemp -q -t send_candidate_list.$(date +%Y%m%d%H%M%S).XXXXXX </dev/null)
+
 ids_name='zeek'
 if [[ $local_tld == *"bro"* ]]; then
 	ids_name='bro'
@@ -237,28 +259,35 @@ threeda=`date '+%Y-%m-%d' --date='3 days ago'`
 
 status "Sending logs to rita/aihunter server $aih_location , My name: $my_id , local dir: $local_tld , remote dir: $remote_top_dir"
 
+#Strictly speaking this isn't required - rsync will create directories on the target system as needed.
+#With that said, it's helpful to test that raw ssh will work before attempting to transfer files.
 status "Preparing remote directories"
 ssh $extra_ssh_params "$aih_location" "mkdir -p ${remote_top_dir}/$today/ ${remote_top_dir}/$yesterday/ ${remote_top_dir}/$twoda/ ${remote_top_dir}/$threeda/ ${remote_top_dir}/current/"
 
 cd "$local_tld" || fail "Unable to change to $local_tld"
-send_candidates=`find . -type f -mtime -3 -iname '*.gz' | egrep "$log_type_regex" | grep -v '/\.' | sort -u`
-if  [ ${#send_candidates} -eq 0 ]; then
+find . -type f -mtime -"$numdays" -iname '*.gz' | egrep "$log_type_regex" | grep -v '/\.' | sort -u >"$send_candidate_file"
+if  [ ! -s "$send_candidate_file" ]; then
 	echo
-	printf "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"
+	echo "WARNING: No logs found, if your log directory is not $local_tld please use the flag: --localdir [bro_zeek_log_directory]"
 	echo
-
 fi
+
 status "Transferring files to $aih_location"
-flock -xn "$HOME/rsync_log_transport.`echo $aih_location | sed -e 's/@/_/g'`.lck" timeout --kill-after=60 7080 $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" $send_candidates "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
+#By placing the destination name and the number of days requested in the lock file name, we allow
+#simultaneous transfers to multiple remote hosts and simultaneous transfers of the last 3 days and
+#$numdays days.
+flock -xn "$HOME/rsync_log_transport.`echo $aih_location | sed -e 's/@/_/g'`.$numdays.lck" timeout --kill-after=60 "$timeout_secs" $nice_me rsync $rsyncparams -avR -e "ssh $extra_ssh_params" --files-from="$send_candidate_file" "$local_tld" "$aih_location:${remote_top_dir}/" --delay-updates --chmod=Do+rx,Fo+r
 retval=$?
 if [ "$retval" == "1" ]; then
 	status "Unable to obtain lock and run a new copy of rsync as the previous rsync appears to still be running."
+	rm -f "$send_candidate_file"
 elif [ "$retval" == "124" -o "$retval" == "129" ]; then
 	status "Rsync was forcibly terminated as it was running too long."
 elif [ "$retval" == "0" ]; then
 	status "Rsync finished transferring without error."
+	rm -f "$send_candidate_file"
 fi
 
 #Note: after we added a user option to set the destination dir, we remove the --temp-dir option as this dir may not be on the same mount point as the destination dir.
 #rsync will put temporary files in a .~tmp~ directory under each destination subdir.
-#Originally:  --temp-dir="/opt/bro/tmp/$my_id/"
+#Originally:  --temp-dir="/opt/zeek/tmp/$my_id/"
